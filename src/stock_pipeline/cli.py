@@ -16,6 +16,12 @@ def main(argv: list[str] | None = None) -> int:
 
     subparsers.add_parser("init", help="Create local .env and config/datasets.yml if missing.")
 
+    login_parser = subparsers.add_parser("login-webvpn", help="Open WebVPN and save manual login state.")
+    login_parser.add_argument("--headless", action="store_true", help="Run browser without a visible window.")
+
+    csmar_parser = subparsers.add_parser("open-csmar", help="Open WebVPN with saved login state for CSMAR.")
+    csmar_parser.add_argument("--headless", action="store_true", help="Run browser without a visible window.")
+
     check_parser = subparsers.add_parser("check-vpn", help="Check CSMAR/campus access.")
     check_parser.add_argument("--connect-vpn", action="store_true", help="Try Windows rasdial first if access fails.")
 
@@ -28,6 +34,23 @@ def main(argv: list[str] | None = None) -> int:
         return _init_project()
 
     settings = load_settings()
+
+    if args.command == "login-webvpn":
+        from stock_pipeline.browser_crawler import login_webvpn
+
+        result = login_webvpn(settings, headless=args.headless)
+        print(f"Saved login state: {result.storage_state}")
+        print(f"Saved screenshot: {result.screenshot}")
+        return 0
+
+    if args.command == "open-csmar":
+        from stock_pipeline.browser_crawler import open_csmar_session
+
+        result = open_csmar_session(settings, headless=args.headless)
+        print(f"Saved login state: {result.storage_state}")
+        print(f"Saved screenshot: {result.screenshot}")
+        print(f"Downloads directory: {result.downloads_dir}")
+        return 0
 
     if args.command == "check-vpn":
         result = ensure_campus_access(settings, auto_connect=args.connect_vpn)

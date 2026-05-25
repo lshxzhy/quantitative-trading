@@ -21,6 +21,9 @@ class Settings:
     logs_dir: Path
     datasets_file: Path
     csmar_healthcheck_url: str
+    webvpn_url: str
+    csmar_home_url: str
+    webvpn_storage_state: Path
     csmar_api_base_url: str | None
     csmar_api_token: str | None
     vpn_connection_name: str | None
@@ -50,6 +53,9 @@ def load_settings(
         logs_dir=root / "logs",
         datasets_file=datasets_file,
         csmar_healthcheck_url=os.getenv("CSMAR_HEALTHCHECK_URL", "https://www.csmar.com/"),
+        webvpn_url=os.getenv("WEBVPN_URL", "https://webvpn.swufe.edu.cn/"),
+        csmar_home_url=os.getenv("CSMAR_HOME_URL", "https://www.csmar.com/"),
+        webvpn_storage_state=_resolve_path(root, os.getenv("WEBVPN_STORAGE_STATE", "state/webvpn_storage_state.json")),
         csmar_api_base_url=_none_if_blank(os.getenv("CSMAR_API_BASE_URL")),
         csmar_api_token=_none_if_blank(os.getenv("CSMAR_API_TOKEN")),
         vpn_connection_name=_none_if_blank(os.getenv("VPN_CONNECTION_NAME")),

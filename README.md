@@ -24,6 +24,8 @@ stock/
 
 `data/`、`logs/`、`state/` 是运行时目录，会由程序按需创建，不提交到 GitHub。
 
+`scripts/run_daily_update.ps1` 和 `scripts/setup_windows_task.ps1` 是以后做每日自动更新时用的 PowerShell 脚本，不是网页爬虫主体。网页自动化代码放在 `src/stock_pipeline/`。
+
 ## 第一次本地运行
 
 在 PowerShell 里进入项目目录：
@@ -72,6 +74,22 @@ stock-update init
 ```powershell
 stock-update check-vpn
 ```
+
+第一次使用 SWUFE WebVPN 时，打开浏览器并手动登录：
+
+```powershell
+stock-update login-webvpn
+```
+
+登录成功后回到终端按 Enter，程序会把浏览器登录态保存到 `state/webvpn_storage_state.json`。账号密码不会写进代码，也不会上传 GitHub。
+
+之后复用 WebVPN 登录态打开 CSMAR 会话：
+
+```powershell
+stock-update open-csmar
+```
+
+下载文件会保存到 `data/raw/csmar/日期/`，该目录不会上传 GitHub。
 
 运行一次数据更新：
 
