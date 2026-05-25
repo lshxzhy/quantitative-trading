@@ -34,18 +34,33 @@ stock/
 cd C:\Users\19029\Desktop\stock
 ```
 
-创建虚拟环境：
+当前阶段可以直接使用你电脑上的 Python/Conda 环境运行项目。先确认当前 Python：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+where python
+python --version
 ```
 
 安装依赖：
 
 ```powershell
 python -m pip install --upgrade pip
-pip install -e .
+python -m pip install -r requirements.txt
+```
+
+Playwright 还需要安装浏览器运行时：
+
+```powershell
+python -m playwright install chromium
+python -m playwright --version
+```
+
+如果以后希望项目环境和系统环境隔离，也可以改用虚拟环境：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
 生成本地配置文件：
@@ -92,4 +107,3 @@ stock-update update --connect-vpn
 
 - [GitHub 新手步骤](docs/github_step_by_step.md)
 - [CSMAR 接入计划](docs/csmar_access_plan.md)
-
