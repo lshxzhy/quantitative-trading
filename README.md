@@ -1,120 +1,56 @@
-# Stock Research
+# Quantitative Trading Learning Project
 
-这是一个用于股票数据分析的 Python 项目骨架。当前目标是先把项目搭好，后续再逐步接入 CSMAR 的正式数据接口或学校允许的下载方式。
+这是一个从零开始学习 Python 股票数据采集与分析的项目。
 
-## 重要原则
+当前阶段目标：
 
-CSMAR 通常是学校或机构购买授权后使用的数据库。自动化下载前，请确认：
+1. 学会用 Git/GitHub 管理代码。
+2. 学会用 Python 编写最小脚本。
+3. 学会用 Playwright 打开 WebVPN 和 CSMAR 页面。
+4. 逐步把手动操作改写成可维护的自动化代码。
 
-- 你有合法账号和数据访问权限。
-- 学校图书馆/数据库使用规则允许通过 API 或程序化方式下载。
-- 不做连续批量抓取、绕过验证码、绕过限流、共享账号、转卖数据等行为。
+## 约定
 
-优先路线是使用 CSMAR 官方提供的 Python/API 数据接口；如果只能网页下载，建议先做“人工登录 + 程序整理下载文件”的半自动流程，再确认规则允许后再考虑浏览器自动化。
+- 代码由自己逐步编写。
+- 每次只做一个很小的功能。
+- 数据、账号、密码、登录状态、下载文件都不上传 GitHub。
+- 遇到报错时，先保存报错信息，再逐步定位。
 
-## 项目结构
+## 建议目录
 
-```text
-stock/
-  config/                   # 数据集配置模板
-  scripts/                  # Windows 定时任务脚本
-  src/stock_pipeline/       # Python 源代码
-  tests/                    # 测试
-```
+后续我们会按需要逐步创建目录。不要提前建太多空文件夹。
 
-`data/`、`logs/`、`state/` 是运行时目录，会由程序按需创建，不提交到 GitHub。
-
-`scripts/run_daily_update.ps1` 和 `scripts/setup_windows_task.ps1` 是以后做每日自动更新时用的 PowerShell 脚本，不是网页爬虫主体。网页自动化代码放在 `src/stock_pipeline/`。
-
-## 第一次本地运行
-
-在 PowerShell 里进入项目目录：
-
-```powershell
-cd C:\Users\19029\Desktop\stock
-```
-
-当前阶段可以直接使用你电脑上的 Python/Conda 环境运行项目。先确认当前 Python：
-
-```powershell
-where python
-python --version
-```
-
-安装依赖：
-
-```powershell
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Playwright 还需要安装浏览器运行时：
-
-```powershell
-python -m playwright install chromium
-python -m playwright --version
-```
-
-如果以后希望项目环境和系统环境隔离，也可以改用虚拟环境：
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-```
-
-生成本地配置文件：
-
-```powershell
-stock-update init
-```
-
-检查校园网/CSMAR 是否可达：
-
-```powershell
-stock-update check-vpn
-```
-
-第一次使用 SWUFE WebVPN 时，打开浏览器并手动登录：
-
-```powershell
-stock-update login-webvpn
-```
-
-登录成功后回到终端按 Enter，程序会把浏览器登录态保存到 `state/webvpn_storage_state.json`。账号密码不会写进代码，也不会上传 GitHub。
-
-之后复用 WebVPN 登录态打开 CSMAR 会话：
-
-```powershell
-stock-update open-csmar
-```
-
-下载文件会保存到 `data/raw/csmar/日期/`，该目录不会上传 GitHub。
-
-运行一次数据更新：
-
-```powershell
-stock-update update
-```
-
-如果你已经在 Windows 里配置好了校园 VPN 连接名，可以在 `.env` 里设置：
+第一步可以只创建：
 
 ```text
-VPN_CONNECTION_NAME=你的VPN连接名
+scripts/
 ```
 
-之后可尝试：
+用来放学习脚本，例如：
+
+```text
+scripts/01_open_webvpn.py
+```
+
+## Git 日常命令
+
+查看当前状态：
 
 ```powershell
-stock-update check-vpn --connect-vpn
-stock-update update --connect-vpn
+git status
 ```
 
-这个项目不会在代码中保存 VPN 密码或 CSMAR 密码。
+查看具体改动：
 
-## 接入 CSMAR 的下一步
+```powershell
+git diff
+```
 
-1. 登录学校图书馆的 CSMAR 页面，确认是否有 Python/API 文档。
-2. 如果有官方 API，把接口地址、token 或必要参数填入 `.env` 和 `config/datasets.yml`。
-3. 如果没有 API，先手动下载一个最小数据集，放入 `data/raw/manual/`，我们再写清洗和入库流程。
-4. 每新增一个数据集，都先从“小范围、少字段、短时间区间”测试，确认格式稳定后再扩大。
+提交并同步：
+
+```powershell
+git add 文件名
+git commit -m "说明这次改了什么"
+git push
+```
+

@@ -1,29 +1,28 @@
-# Python
+# Python cache
 __pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
 .pytest_cache/
-.ruff_cache/
 .mypy_cache/
-.coverage
-htmlcov/
+.ruff_cache/
 
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
 
-# Local secrets and machine-specific config
+# Local secrets and login state
 .env
-config/datasets.yml
-
-# Runtime files should not be pushed to GitHub
-data/
 state/
+
+# Data and generated outputs
+data/
+downloads/
+outputs/
 logs/
 
-# OS/editor
-.DS_Store
-Thumbs.db
+# IDE/OS
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
