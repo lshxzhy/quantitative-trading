@@ -15,19 +15,12 @@ venv/
 
 # Local secrets and machine-specific config
 .env
+config/datasets.yml
 
-# Data files should not be pushed to GitHub
-data/raw/*
-data/processed/*
-data/external/*
-state/*
-logs/*
-
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/external/.gitkeep
-!state/.gitkeep
-!logs/.gitkeep
+# Runtime files should not be pushed to GitHub
+data/
+state/
+logs/
 
 # OS/editor
 .DS_Store

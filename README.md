@@ -16,15 +16,13 @@ CSMAR 通常是学校或机构购买授权后使用的数据库。自动化下�
 
 ```text
 stock/
-  config/                   # 数据集配置
-  data/                     # 本地数据，不提交到 GitHub
-    raw/                    # 原始下载文件
-    processed/              # 清洗后的数据
-  docs/                     # 学习文档和操作步骤
+  config/                   # 数据集配置模板
   scripts/                  # Windows 定时任务脚本
   src/stock_pipeline/       # Python 源代码
   tests/                    # 测试
 ```
+
+`data/`、`logs/`、`state/` 是运行时目录，会由程序按需创建，不提交到 GitHub。
 
 ## 第一次本地运行
 
@@ -102,8 +100,3 @@ stock-update update --connect-vpn
 2. 如果有官方 API，把接口地址、token 或必要参数填入 `.env` 和 `config/datasets.yml`。
 3. 如果没有 API，先手动下载一个最小数据集，放入 `data/raw/manual/`，我们再写清洗和入库流程。
 4. 每新增一个数据集，都先从“小范围、少字段、短时间区间”测试，确认格式稳定后再扩大。
-
-更详细说明见：
-
-- [GitHub 新手步骤](docs/github_step_by_step.md)
-- [CSMAR 接入计划](docs/csmar_access_plan.md)
