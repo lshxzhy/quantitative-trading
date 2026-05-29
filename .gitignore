@@ -15,6 +15,8 @@ venv/
 .env
 state/
 notebooks/
+*.ipynb
+.ipynb_checkpoints/
 
 # Data and generated outputs
 data/
