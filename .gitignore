@@ -20,6 +20,9 @@ notebooks/
 
 # Data and generated outputs
 data/
+backup/**/raw/
+backup/**/processed/
+backup/**/state/
 downloads/
 outputs/
 logs/
