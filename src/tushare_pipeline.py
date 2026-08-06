@@ -184,7 +184,9 @@ def validate_frame(
             raise RuntimeError(f"Tushare endpoint {name} has blank key values in {key}")
 
     if frame.duplicated(list(spec.keys)).any():
-        duplicates = frame.loc[frame.duplicated(list(spec.keys), keep=False), list(spec.keys)]
+        duplicates = frame.loc[
+            frame.duplicated(list(spec.keys), keep=False), list(spec.keys)
+        ]
         raise RuntimeError(
             f"Tushare endpoint {name} has duplicate keys: "
             f"{duplicates.head(10).to_dict(orient='records')}"

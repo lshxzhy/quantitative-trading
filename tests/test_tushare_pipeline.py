@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -13,6 +15,7 @@ from src.tushare_pipeline import (
     parse_trade_date,
     validate_frame,
 )
+from src.update import default_end_date, query_open_dates, resolve_start_date
 
 
 TRADE_DATE = "20260803"
@@ -64,6 +67,29 @@ class FakeApi:
         raise AssertionError(f"Unexpected API name: {api_name}")
 
 
+class FakeCalendarApi:
+    def query(self, api_name: str, fields: str = "", **kwargs: str) -> pd.DataFrame:
+        if api_name != "trade_cal":
+            raise AssertionError(f"Unexpected API name: {api_name}")
+        return frame_for(
+            "trade_cal",
+            [
+                {
+                    "exchange": "SSE",
+                    "cal_date": "20260801",
+                    "is_open": "0",
+                    "pretrade_date": "20260731",
+                },
+                {
+                    "exchange": "SSE",
+                    "cal_date": "20260803",
+                    "is_open": "1",
+                    "pretrade_date": "20260731",
+                },
+            ],
+        )
+
+
 class ParseDateTests(unittest.TestCase):
     def test_parse_trade_date_accepts_both_supported_formats(self) -> None:
         self.assertEqual(parse_trade_date("2026-08-03"), TRADE_DATE)
@@ -106,10 +132,7 @@ class ValidationTests(unittest.TestCase):
     def test_existing_target_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             target = (
-                Path(temp_directory)
-                / "raw"
-                / "tushare"
-                / f"trade_date={TRADE_DATE}"
+                Path(temp_directory) / "raw" / "tushare" / f"trade_date={TRADE_DATE}"
             )
             target.mkdir(parents=True)
             with self.assertRaisesRegex(FileExistsError, "Target directory"):
@@ -119,6 +142,27 @@ class ValidationTests(unittest.TestCase):
                     data_root=Path(temp_directory),
                     sdk_version="test",
                 )
+
+
+class UpdateTests(unittest.TestCase):
+    def test_default_end_date_waits_until_18_china_time(self) -> None:
+        timezone = ZoneInfo("Asia/Shanghai")
+        before_ready = datetime(2026, 8, 6, 17, 59, tzinfo=timezone)
+        after_ready = datetime(2026, 8, 6, 18, 0, tzinfo=timezone)
+        self.assertEqual(default_end_date(before_ready), "20260805")
+        self.assertEqual(default_end_date(after_ready), "20260806")
+
+    def test_start_date_continues_after_latest_partition(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            data_root = Path(temp_directory)
+            (data_root / "raw" / "tushare" / "trade_date=20260803").mkdir(parents=True)
+            self.assertEqual(resolve_start_date(data_root, None), "20260804")
+
+    def test_open_dates_follow_exchange_calendar(self) -> None:
+        self.assertEqual(
+            query_open_dates(FakeCalendarApi(), "20260801", "20260803"),
+            ["20260803"],
+        )
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from pathlib import Path
 import tushare as ts
 from dotenv import load_dotenv
 
-from tushare_pipeline import download_trade_date, parse_trade_date
+from .tushare_pipeline import download_trade_date, parse_trade_date
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
