@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
-from pathlib import Path
+from datetime import date, datetime
 from typing import Protocol
 
 import pandas as pd
@@ -13,6 +10,8 @@ import pandas as pd
 
 TARGET_INDEX_CODES = ("000001.SH", "000300.SH", "000852.SH", "000905.SH")
 BSE_OPEN_DATE = date(2021, 11, 15)
+STOCK_KEYS = ("trade_date", "ts_code")
+INDEX_KEYS = ("trade_date", "ts_code")
 
 
 class TushareApi(Protocol):
@@ -133,6 +132,49 @@ ENDPOINT_SPECS: Mapping[str, EndpointSpec] = {
 }
 
 
+STOCK_COLUMNS = (
+    "trade_date",
+    *ENDPOINT_SPECS["stock_basic"].fields,
+    *(
+        field
+        for field in ENDPOINT_SPECS["daily"].fields
+        if field not in {"ts_code", "trade_date"}
+    ),
+    *(
+        "daily_basic_close" if field == "close" else field
+        for field in ENDPOINT_SPECS["daily_basic"].fields
+        if field not in {"ts_code", "trade_date"}
+    ),
+    "adj_factor",
+    "limit_pre_close",
+    "up_limit",
+    "down_limit",
+    "suspend_timing",
+    "suspend_type",
+)
+INDEX_COLUMNS = ENDPOINT_SPECS["index_daily"].fields
+STOCK_STRING_COLUMNS = ("trade_date", "ts_code", "symbol", "list_date", "delist_date")
+STOCK_NUMERIC_COLUMNS = (
+    *(
+        field
+        for field in ENDPOINT_SPECS["daily"].fields
+        if field not in {"ts_code", "trade_date"}
+    ),
+    *(
+        "daily_basic_close" if field == "close" else field
+        for field in ENDPOINT_SPECS["daily_basic"].fields
+        if field not in {"ts_code", "trade_date"}
+    ),
+    "adj_factor",
+    "limit_pre_close",
+    "up_limit",
+    "down_limit",
+)
+INDEX_NUMERIC_COLUMNS = tuple(
+    field for field in INDEX_COLUMNS if field not in {"ts_code", "trade_date"}
+)
+
+
 def parse_trade_date(value: str) -> str:
     normalized = value.replace("-", "")
     parsed = datetime.strptime(normalized, "%Y%m%d").date()
@@ -204,7 +246,7 @@ def validate_frame(
 
 
 def validate_market_coverage(frame: pd.DataFrame, trade_date: str, name: str) -> None:
-    suffixes = set(frame["ts_code"].str.rsplit(".", n=1).str[-1])
+    suffixes = set(frame["ts_code"].astype(str).str.rsplit(".", n=1).str[-1])
     expected = {"SH", "SZ"}
     if datetime.strptime(trade_date, "%Y%m%d").date() >= BSE_OPEN_DATE:
         expected.add("BJ")
@@ -298,66 +340,188 @@ def fetch_trade_date(api: TushareApi, trade_date: str) -> dict[str, pd.DataFrame
     return frames
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _joined_values(values: pd.Series) -> object:
+    cleaned = sorted(
+        {
+            str(value).strip()
+            for value in values
+            if pd.notna(value) and str(value).strip()
+        }
+    )
+    return "|".join(cleaned) if cleaned else pd.NA
 
 
-def write_csv(path: Path, frame: pd.DataFrame) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    frame.to_csv(temporary, index=False, encoding="utf-8-sig", lineterminator="\n")
-    temporary.replace(path)
-
-
-def download_trade_date(
-    api: TushareApi,
-    trade_date: str,
-    data_root: Path,
-    sdk_version: str,
-) -> Path:
-    trade_date = parse_trade_date(trade_date)
-    data_root = data_root.resolve()
-    staging = data_root / ".staging" / "tushare" / trade_date
-    target = data_root / "raw" / "tushare" / f"trade_date={trade_date}"
-
-    if staging.exists():
-        raise FileExistsError(f"Staging directory already exists: {staging}")
-    if target.exists():
-        raise FileExistsError(f"Target directory already exists: {target}")
-
-    staging.mkdir(parents=True)
-    frames = fetch_trade_date(api, trade_date)
-
-    file_entries: list[dict[str, object]] = []
-    for name, frame in frames.items():
-        path = staging / f"{name}.csv"
-        write_csv(path, frame)
-        file_entries.append(
-            {
-                "name": path.name,
-                "rows": len(frame),
-                "bytes": path.stat().st_size,
-                "sha256": sha256(path),
-            }
+def _aggregate_suspensions(frame: pd.DataFrame) -> pd.DataFrame:
+    columns = ["ts_code", "trade_date", "suspend_timing", "suspend_type"]
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+    return (
+        frame.loc[:, columns]
+        .groupby(["ts_code", "trade_date"], as_index=False, sort=True, dropna=False)
+        .agg(
+            suspend_timing=("suspend_timing", _joined_values),
+            suspend_type=("suspend_type", _joined_values),
         )
-
-    manifest = {
-        "schema_version": 1,
-        "source": "tushare_pro",
-        "trade_date": trade_date,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "tushare_sdk_version": sdk_version,
-        "files": file_entries,
-    }
-    manifest_path = staging / "manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
     )
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    staging.replace(target)
-    return target
+
+def _validate_equal_numeric_columns(
+    frame: pd.DataFrame,
+    left_column: str,
+    right_column: str,
+) -> None:
+    comparable = frame[left_column].notna() & frame[right_column].notna()
+    if not comparable.any():
+        return
+    left = pd.to_numeric(frame.loc[comparable, left_column], errors="raise")
+    right = pd.to_numeric(frame.loc[comparable, right_column], errors="raise")
+    mismatch = (left - right).abs() > 1e-8
+    if mismatch.any():
+        rows = frame.loc[
+            left.index[mismatch],
+            ["trade_date", "ts_code", left_column, right_column],
+        ]
+        raise RuntimeError(
+            f"{left_column} and {right_column} disagree: "
+            f"{rows.head(10).to_dict(orient='records')}"
+        )
+
+
+def _normalize_stock_types(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    for column in STOCK_STRING_COLUMNS:
+        result[column] = result[column].astype("string")
+    for column in STOCK_NUMERIC_COLUMNS:
+        result[column] = pd.to_numeric(result[column], errors="raise")
+    return result
+
+
+def _normalize_index_types(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    for column in ("trade_date", "ts_code"):
+        result[column] = result[column].astype("string")
+    for column in INDEX_NUMERIC_COLUMNS:
+        result[column] = pd.to_numeric(result[column], errors="raise")
+    return result
+
+
+def build_stocks_frame(
+    frames: Mapping[str, pd.DataFrame], trade_date: str
+) -> pd.DataFrame:
+    trade_date = parse_trade_date(trade_date)
+    required = {
+        "stock_basic",
+        "daily",
+        "daily_basic",
+        "adj_factor",
+        "stk_limit",
+        "suspend_d",
+    }
+    missing = sorted(required - set(frames))
+    if missing:
+        raise RuntimeError(f"Missing stock input frames: {missing}")
+
+    base = frames["stock_basic"].copy()
+    if base["ts_code"].duplicated().any():
+        raise RuntimeError("stock_basic has duplicate ts_code values")
+    base.insert(0, "trade_date", trade_date)
+
+    daily_basic = frames["daily_basic"].rename(
+        columns={"close": "daily_basic_close"}
+    )
+    limits = frames["stk_limit"].rename(columns={"pre_close": "limit_pre_close"})
+    suspensions = _aggregate_suspensions(frames["suspend_d"])
+
+    result = base.merge(
+        frames["daily"], on=["trade_date", "ts_code"], how="left", validate="one_to_one"
+    )
+    for addition in (daily_basic, frames["adj_factor"], limits, suspensions):
+        result = result.merge(
+            addition,
+            on=["trade_date", "ts_code"],
+            how="left",
+            validate="one_to_one",
+        )
+
+    result = _normalize_stock_types(result.loc[:, STOCK_COLUMNS])
+    result = result.sort_values(list(STOCK_KEYS), kind="stable").reset_index(drop=True)
+    _validate_equal_numeric_columns(result, "close", "daily_basic_close")
+    _validate_equal_numeric_columns(result, "pre_close", "limit_pre_close")
+    validate_stock_table(result)
+    return result
+
+
+def build_indexes_frame(
+    frames: Mapping[str, pd.DataFrame], trade_date: str
+) -> pd.DataFrame:
+    trade_date = parse_trade_date(trade_date)
+    if "index_daily" not in frames:
+        raise RuntimeError("Missing index_daily input frame")
+    result = _normalize_index_types(frames["index_daily"].loc[:, INDEX_COLUMNS])
+    actual_dates = set(result["trade_date"].astype(str))
+    if actual_dates != {trade_date}:
+        raise RuntimeError(
+            f"index_daily returned dates {sorted(actual_dates)}, expected {trade_date}"
+        )
+    result = result.sort_values(list(INDEX_KEYS), kind="stable").reset_index(drop=True)
+    validate_index_table(result)
+    return result
+
+
+def _validate_dates(values: pd.Series, name: str) -> None:
+    text = values.astype("string")
+    invalid_shape = ~text.str.fullmatch(r"\d{8}", na=False)
+    if invalid_shape.any():
+        raise RuntimeError(f"{name} contains invalid YYYYMMDD values")
+    parsed = pd.to_datetime(text, format="%Y%m%d", errors="coerce")
+    if parsed.isna().any():
+        raise RuntimeError(f"{name} contains invalid calendar dates")
+
+
+def validate_stock_table(frame: pd.DataFrame) -> None:
+    if tuple(frame.columns) != STOCK_COLUMNS:
+        raise RuntimeError("stocks columns do not match the version 1 schema")
+    if frame.empty:
+        raise RuntimeError("stocks is empty")
+    if frame.duplicated(list(STOCK_KEYS)).any():
+        raise RuntimeError("stocks has duplicate trade_date + ts_code keys")
+    _validate_dates(frame["trade_date"], "stocks.trade_date")
+    expected_order = frame.sort_values(list(STOCK_KEYS), kind="stable").index
+    if not expected_order.equals(frame.index):
+        raise RuntimeError("stocks is not sorted by trade_date and ts_code")
+    for trade_date, group in frame.groupby("trade_date", sort=False):
+        validate_market_coverage(group, str(trade_date), "stocks")
+    _validate_equal_numeric_columns(frame, "close", "daily_basic_close")
+    _validate_equal_numeric_columns(frame, "pre_close", "limit_pre_close")
+
+
+def validate_index_table(frame: pd.DataFrame) -> None:
+    if tuple(frame.columns) != INDEX_COLUMNS:
+        raise RuntimeError("indexes columns do not match the version 1 schema")
+    if frame.empty:
+        raise RuntimeError("indexes is empty")
+    if frame.duplicated(list(INDEX_KEYS)).any():
+        raise RuntimeError("indexes has duplicate trade_date + ts_code keys")
+    _validate_dates(frame["trade_date"], "indexes.trade_date")
+    expected_order = frame.sort_values(list(INDEX_KEYS), kind="stable").index
+    if not expected_order.equals(frame.index):
+        raise RuntimeError("indexes is not sorted by trade_date and ts_code")
+    expected_codes = set(TARGET_INDEX_CODES)
+    for trade_date, group in frame.groupby("trade_date", sort=False):
+        actual_codes = set(group["ts_code"].astype(str))
+        if len(group) != len(expected_codes) or actual_codes != expected_codes:
+            raise RuntimeError(
+                f"indexes for {trade_date} contain {sorted(actual_codes)}, "
+                f"expected {sorted(expected_codes)}"
+            )
+
+
+def validate_tables(stocks: pd.DataFrame, indexes: pd.DataFrame) -> None:
+    validate_stock_table(stocks)
+    validate_index_table(indexes)
+    stock_dates = set(stocks["trade_date"].astype(str))
+    index_dates = set(indexes["trade_date"].astype(str))
+    if stock_dates != index_dates:
+        raise RuntimeError(
+            "stocks and indexes do not contain the same complete trading dates"
+        )

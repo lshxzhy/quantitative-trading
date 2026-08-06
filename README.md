@@ -1,126 +1,141 @@
 # 股票数据更新
 
-项目当前使用 Tushare Pro API 下载并校验中国股票市场日频数据。原 CSMAR
-数据、爬虫、合并脚本和测试已整体归档，不再参与当前下载流程。
+本项目使用 Tushare Pro 维护中国股票和指数日频数据。旧 CSMAR 数据、代码和清单已整体归档，
+不参与当前更新流程。
 
 ## 项目结构
 
 ```text
-backup/
-  csmar_snapshot_migrated_2026-08-04/
-    code/             # 原 CSMAR 代码与测试
-    raw/              # 原始 CSMAR ZIP，本地保留且不上传 Git
-    processed/        # 原合并 CSV，本地保留且不上传 Git
-    manifest.sha256.csv
-data/                 # 新 Tushare 数据，本地生成且不上传 Git
-src/
-  download.py         # 下载命令入口
-  update.py           # 连续补齐缺失交易日的日更入口
-  tushare_pipeline.py # 接口调用、校验与原子落盘
-tests/
-  test_tushare_pipeline.py
+stock/
+├─ backup/
+│  └─ csmar_snapshot_migrated_2026-08-04/  # 只读旧数据快照
+├─ data/
+│  ├─ market_data.pkl                       # 程序使用的完整历史数据
+│  └─ market_data.xlsx                      # WPS/Excel 查看副本
+├─ scripts/
+│  └─ update_daily.ps1                      # Windows 计划任务入口
+├─ src/
+│  ├─ __init__.py
+│  ├─ tushare_pipeline.py                    # 下载、连接和数据校验
+│  └─ update.py                              # 缺口检查、追加和原子写入
+├─ .env
+├─ .env.example
+├─ .gitignore
+├─ README.md
+└─ requirements.txt
 ```
 
-## 准备环境
+`data/`、`.env` 和 CSMAR 大文件都被 Git 忽略。Git 只保存代码、配置说明和旧快照的清单/代码。
+
+## 安装与 Token
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-当前下载集合按 Tushare Pro 2000 积分权限设计，包含股票基础信息、交易日历、
-A 股日线、每日指标、复权因子、每日涨跌停价格、每日停复牌信息和指数日线。
-2000 积分档存在接口频率限制，但单个交易日的完整下载约发起 11 次请求，批量更新
-另有 1 次交易日历请求，不需要额外提高积分才能完成日更。
-
-复制 `.env.example` 中的配置项到本地 `.env`，填入在 Tushare 个人中心获取的
-Token：
+在项目根目录 `.env` 中填写 Tushare 个人中心提供的 Token：
 
 ```dotenv
 TUSHARE_TOKEN=你的Token
 ```
 
-`.env`、`data/`、CSMAR 大文件和浏览器状态均已被 Git 忽略。
+当前接口集合按 Tushare Pro 2000 积分权限设计，包括交易日历、当前上市股票名单、A 股日线、
+每日指标、复权因子、涨跌停价格、停复牌事件和四个指数日线。
 
-## 下载一个交易日
+## 数据文件
 
-```powershell
-python -m src.download --date 2026-05-26
+`data/market_data.pkl` 是唯一完整数据源，使用 `pandas.to_pickle` 保存以下字典：
+
+```python
+{
+    "schema_version": 1,
+    "source": "tushare_pro",
+    "updated_at_utc": "...",
+    "stocks": stocks_dataframe,
+    "indexes": indexes_dataframe,
+}
 ```
 
-## 首次补齐与日常更新
+读取方式：
 
-旧 CSMAR 个股数据截至 2026-05-26。首次接通 Tushare 后，从下一天开始补齐：
+```python
+import pandas as pd
 
-```powershell
-python -m src.update --start 2026-05-27
+bundle = pd.read_pickle("data/market_data.pkl")
+stocks = bundle["stocks"]
+indexes = bundle["indexes"]
 ```
 
-更新命令先读取上交所交易日历，只下载区间内尚不存在的开市日；已有日期分区会明确
-跳过。第一次成功写入后，日常运行不再需要指定开始日期：
+`stocks` 以 `trade_date + ts_code` 为主键，按日期和代码升序排列。每个交易日以下载当时的
+`stock_basic` 当前上市名单为主表，再左连接 `daily`、`daily_basic`、`adj_factor`、
+`stk_limit` 和聚合后的 `suspend_d`。因此没有日线的当前上市股票仍保留一行，价格为空；
+只出现在涨跌停接口中的 ETF、基金不会进入股票表。
+
+首次迁移的 50 个历史分区使用同一份当前上市名单快照，每日 5,538 只，共 276,900 行。
+源 `daily.csv` 共 275,848 行，其中 189 行属于已不在当前上市名单中的 13 个历史代码，按上述
+主表规则不进入 `stocks`；最终非空日线为 275,659 行。这是当前名单口径的必然结果，不代表
+源日线丢失或连接失败。真正的历史时点股票池应在后续研究阶段结合 `list_date`、
+`delist_date` 和实际行情另行构造。
+
+`indexes` 保留 Tushare 原始 11 列，每个交易日固定包含：
+
+- `000001.SH`：上证指数
+- `000300.SH`：沪深300
+- `000852.SH`：中证1000
+- `000905.SH`：中证500
+
+`data/market_data.xlsx` 只用于查看，工作表只有 `stocks` 和 `indexes`。完整历史以 Pickle
+为准；当股票历史超过 Excel 上限时，只选择能够完整放入的最近若干交易日，不截断任何一天。
+
+## 手动更新
+
+补齐从现有最早日期到默认结束日期之间的全部缺口：
 
 ```powershell
 python -m src.update
 ```
 
-程序会从本地最早的 `trade_date=YYYYMMDD` 分区开始核对交易日历，因此除了继续下载
-最新日期，也能发现并补回中间被误删的交易日。默认结束日期按北京时间确定：18:00
-及以后使用当天，18:00 前使用前一天，避免每日指标尚未全部入库。周末和节假日由
-交易日历自动排除。也可以用 `--end YYYY-MM-DD` 明确指定结束日。
-
-每个分区中的 `stock_basic.csv` 是该次下载时的当前上市股票信息快照，不是对应历史
-交易日的时点名单。历史研究应使用 `daily.csv` 中实际出现的股票，或根据
-`list_date`、`delist_date` 构造时点股票池，不应把回补分区里的 `stock_basic.csv`
-直接解释为当日历史成分。
-
-日期支持 `YYYYMMDD` 和 `YYYY-MM-DD`。脚本依次检查：
-
-1. 指定日期是上交所交易日；
-2. 上市股票列表包含沪、深、北三个交易所；
-3. 日线、每日指标、复权因子、涨跌停和停复牌接口字段完整；
-4. 日线包含沪、深、北三个市场且主键不重复；
-5. `000001.SH`、`000300.SH`、`000852.SH`、`000905.SH` 四个指数齐全；
-6. 每个 CSV 的行数、字节数和 SHA-256 被写入 `manifest.json`。
-
-数据先写入 `data/.staging/tushare/<交易日>/`。所有接口和校验全部通过后，
-整个目录才会原子移动到：
-
-```text
-data/raw/tushare/trade_date=<交易日>/
-```
-
-目标目录或暂存目录已经存在时脚本会直接报错，不会覆盖既有数据。下载失败时
-暂存目录会保留，便于检查实际失败现场。
-
-## 运行测试
+只检查指定区间：
 
 ```powershell
-python -m pytest -q
+python -m src.update --start 2026-05-27 --end 2026-08-05
 ```
 
-根目录的 `pytest.ini` 将测试发现范围限制在 `tests/`，归档的 CSMAR 测试不会
-参与当前 Tushare 流程的验证。
+如果两个数据文件丢失，需要使用 Tushare Token 重新下载，首次运行必须指定开始日期：
 
-## Windows 自动日更
+```powershell
+python -m src.update --start 2026-05-27
+```
 
-计划任务 `StockTushareDailyUpdate` 在每个工作日 18:30 运行
-`scripts/update_daily.ps1`。该时间晚于程序的 18:00 数据就绪线；周末和法定休市日
-仍会经过交易日历确认，不会创建无效分区。计划任务错过预定时间（例如电脑关机）时，
-Windows 会在下次可用时尽快补跑，并禁止同一个任务并发执行。
+日期支持 `YYYYMMDD` 和 `YYYY-MM-DD`。默认结束日期按北京时间确定：18:00 及以后检查当日，
+18:00 前检查前一日；周末和休市日由上交所交易日历排除。
 
-脚本使用当前项目已经验证的
-`C:\Users\19029\anaconda3\python.exe`，从项目根目录加载 `.env`，运行结果写入
-`logs/tushare-update-YYYYMMDD-HHMMSS.log`。日志和数据都不会提交到 Git。
+更新过程先从 Pickle 获取已有完整交易日，然后只为缺失交易日在内存中下载并连接数据，不再
+生成 CSV、日分区或 manifest。全部数据通过主键、日期、市场覆盖、四个指数和字段一致性检查后，
+程序生成并重新读取临时 Pickle 与 Excel，最后原子替换正式文件。任一步失败都会返回非零退出码，
+不会把半成品追加进正式 Pickle。
 
-可以用以下命令查看任务和最近一次结果：
+即使没有新交易日，程序也会从正式 Pickle 重建 Excel。这样可以自动修复进程恰好在 Pickle
+替换成功、Excel 替换前中断所造成的短暂不同步。
+
+## Windows 自动更新
+
+计划任务 `StockTushareDailyUpdate` 在周一至周五 18:30 运行
+`scripts/update_daily.ps1`。PowerShell 脚本只调用 Python 并原样返回退出码，不创建日志、
+状态 JSON 或 Excel 状态页。
+
+查看任务和最近结果：
 
 ```powershell
 Get-ScheduledTask -TaskName StockTushareDailyUpdate
 Get-ScheduledTaskInfo -TaskName StockTushareDailyUpdate
-Get-ChildItem .\logs\tushare-update-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 ```
+
+`LastTaskResult` 为 `0` 表示成功。后台失败时只保留 Windows 返回码；需要查看具体异常时，
+请在项目根目录手动运行 `python -m src.update`。
 
 ## CSMAR 备用快照
 
-备用目录为 `backup/csmar_snapshot_migrated_2026-08-04/`。其中 13 个原始及
-合并数据文件共 `3,865,198,842` 字节，文件清单和哈希记录在
-`manifest.sha256.csv`。备用数据只读保留，不会被新的 Tushare 流程修改。
+旧快照位于 `backup/csmar_snapshot_migrated_2026-08-04/`。其中原始数据、旧合并结果、旧代码
+（包括归档的 `test_csmar_download.py`）和 `manifest.sha256.csv` 保持原样。当前 Tushare
+更新流程不会读取、修改或删除该目录。

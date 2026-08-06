@@ -25,7 +25,6 @@ backup/**/processed/
 backup/**/state/
 downloads/
 outputs/
-logs/
 
 # IDE/OS
 .vscode/
