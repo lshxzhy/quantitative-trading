@@ -62,9 +62,15 @@ python -m src.update --start 2026-05-27
 python -m src.update
 ```
 
-程序会从本地最新 `trade_date=YYYYMMDD` 分区的下一天继续。默认结束日期按北京时间
-确定：18:00 及以后使用当天，18:00 前使用前一天，避免每日指标尚未全部入库。
-周末和节假日由交易日历自动排除。也可以用 `--end YYYY-MM-DD` 明确指定结束日。
+程序会从本地最早的 `trade_date=YYYYMMDD` 分区开始核对交易日历，因此除了继续下载
+最新日期，也能发现并补回中间被误删的交易日。默认结束日期按北京时间确定：18:00
+及以后使用当天，18:00 前使用前一天，避免每日指标尚未全部入库。周末和节假日由
+交易日历自动排除。也可以用 `--end YYYY-MM-DD` 明确指定结束日。
+
+每个分区中的 `stock_basic.csv` 是该次下载时的当前上市股票信息快照，不是对应历史
+交易日的时点名单。历史研究应使用 `daily.csv` 中实际出现的股票，或根据
+`list_date`、`delist_date` 构造时点股票池，不应把回补分区里的 `stock_basic.csv`
+直接解释为当日历史成分。
 
 日期支持 `YYYYMMDD` 和 `YYYY-MM-DD`。脚本依次检查：
 
@@ -93,6 +99,25 @@ python -m pytest -q
 
 根目录的 `pytest.ini` 将测试发现范围限制在 `tests/`，归档的 CSMAR 测试不会
 参与当前 Tushare 流程的验证。
+
+## Windows 自动日更
+
+计划任务 `StockTushareDailyUpdate` 在每个工作日 18:30 运行
+`scripts/update_daily.ps1`。该时间晚于程序的 18:00 数据就绪线；周末和法定休市日
+仍会经过交易日历确认，不会创建无效分区。计划任务错过预定时间（例如电脑关机）时，
+Windows 会在下次可用时尽快补跑，并禁止同一个任务并发执行。
+
+脚本使用当前项目已经验证的
+`C:\Users\19029\anaconda3\python.exe`，从项目根目录加载 `.env`，运行结果写入
+`logs/tushare-update-YYYYMMDD-HHMMSS.log`。日志和数据都不会提交到 Git。
+
+可以用以下命令查看任务和最近一次结果：
+
+```powershell
+Get-ScheduledTask -TaskName StockTushareDailyUpdate
+Get-ScheduledTaskInfo -TaskName StockTushareDailyUpdate
+Get-ChildItem .\logs\tushare-update-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+```
 
 ## CSMAR 备用快照
 

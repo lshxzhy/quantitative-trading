@@ -57,8 +57,12 @@ def resolve_start_date(data_root: Path, requested_start: str | None) -> str:
             "No Tushare data exists yet. Supply --start for the initial backfill."
         )
 
-    next_day = datetime.strptime(existing[-1], "%Y%m%d").date() + timedelta(days=1)
-    return next_day.strftime("%Y%m%d")
+    return existing[0]
+
+
+def missing_trade_dates(open_dates: list[str], existing_dates: list[str]) -> list[str]:
+    existing = set(existing_dates)
+    return [trade_date for trade_date in open_dates if trade_date not in existing]
 
 
 def query_open_dates(api: TushareApi, start_date: str, end_date: str) -> list[str]:
@@ -99,7 +103,7 @@ def parse_args() -> argparse.Namespace:
         type=parse_trade_date,
         help=(
             "Inclusive start date. Required for the first backfill; afterwards the "
-            "day after the latest local partition is used automatically."
+            "earliest local partition is used so internal gaps are detected."
         ),
     )
     parser.add_argument(
@@ -147,10 +151,7 @@ def main() -> None:
     )
     api = ts.pro_api(token, timeout=args.timeout)
     open_dates = query_open_dates(api, start_date, end_date)
-    existing = set(existing_trade_dates(data_root))
-    missing_dates = [
-        trade_date for trade_date in open_dates if trade_date not in existing
-    ]
+    missing_dates = missing_trade_dates(open_dates, existing_trade_dates(data_root))
     if not missing_dates:
         print("[Tushare] no missing trading days in the requested range", flush=True)
         return

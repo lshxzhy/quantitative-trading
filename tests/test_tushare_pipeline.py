@@ -15,7 +15,12 @@ from src.tushare_pipeline import (
     parse_trade_date,
     validate_frame,
 )
-from src.update import default_end_date, query_open_dates, resolve_start_date
+from src.update import (
+    default_end_date,
+    missing_trade_dates,
+    query_open_dates,
+    resolve_start_date,
+)
 
 
 TRADE_DATE = "20260803"
@@ -152,11 +157,21 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(default_end_date(before_ready), "20260805")
         self.assertEqual(default_end_date(after_ready), "20260806")
 
-    def test_start_date_continues_after_latest_partition(self) -> None:
+    def test_start_date_scans_from_earliest_partition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             data_root = Path(temp_directory)
+            (data_root / "raw" / "tushare" / "trade_date=20260801").mkdir(parents=True)
             (data_root / "raw" / "tushare" / "trade_date=20260803").mkdir(parents=True)
-            self.assertEqual(resolve_start_date(data_root, None), "20260804")
+            self.assertEqual(resolve_start_date(data_root, None), "20260801")
+
+    def test_missing_dates_include_internal_gap(self) -> None:
+        self.assertEqual(
+            missing_trade_dates(
+                ["20260803", "20260804", "20260805"],
+                ["20260803", "20260805"],
+            ),
+            ["20260804"],
+        )
 
     def test_open_dates_follow_exchange_calendar(self) -> None:
         self.assertEqual(
