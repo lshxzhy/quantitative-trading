@@ -15,12 +15,16 @@ venv/
 .env
 state/
 notebooks/
+*.ipynb
+.ipynb_checkpoints/
 
 # Data and generated outputs
 data/
+backup/**/raw/
+backup/**/processed/
+backup/**/state/
 downloads/
 outputs/
-logs/
 
 # IDE/OS
 .vscode/
